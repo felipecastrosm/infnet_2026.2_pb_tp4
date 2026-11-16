@@ -174,3 +174,73 @@ def parametros_sistema():
         )
         tarifa = st.number_input("Tarifa de energia (R$/kWh)", 0.20, 2.00, step=0.05, key="tarifa")
     return potencia, desempenho, tarifa
+
+
+# ---------------------------------------------------------------------------
+# LLM local (rotas /llm/* e /processar_texto)
+# ---------------------------------------------------------------------------
+ICONES_ESTADO = {
+    "pronto": ":material/check_circle:",
+    "carregando": ":material/hourglass_top:",
+    "nao_carregado": ":material/pause_circle:",
+    "erro": ":material/error:",
+    "desativado": ":material/block:",
+}
+
+
+def status_llm() -> dict:
+    """Estado do modelo (sem cache: muda enquanto o modelo carrega)."""
+    return api_client.get("/llm/status")
+
+
+def painel_llm(compacto: bool = False) -> dict | None:
+    """Mostra o estado do LLM local e, se preciso, um botão para carregá-lo. Devolve o status."""
+    try:
+        st_llm = status_llm()
+    except api_client.ErroAPI as exc:
+        st.error(f"Não foi possível consultar o modelo: {exc}", icon=":material/cloud_off:")
+        return None
+    estado = st_llm["estado"]
+    icone = ICONES_ESTADO.get(estado, "")
+    if estado == "pronto":
+        texto = (
+            f"Modelo local **{st_llm['modelo']}** pronto · {st_llm['parametros_milhoes']:,.0f} M de parâmetros · "
+            f"{st_llm['dispositivo']} ({st_llm['dtype']})"
+        ).replace(",", ".")
+        st.caption(f"{icone} {texto}")
+        return st_llm
+    if estado == "carregando":
+        st.info(f"O modelo **{st_llm['modelo']}** está sendo carregado na memória. Isso leva alguns segundos.", icon=icone)
+        if st.button("Atualizar", key=f"atualizar_llm_{compacto}", icon=":material/refresh:"):
+            st.rerun()
+    elif estado == "nao_carregado":
+        st.warning(f"O modelo **{st_llm['modelo']}** ainda não foi carregado.", icon=icone)
+        if st.button("Carregar o modelo", key=f"carregar_llm_{compacto}", icon=":material/download:"):
+            try:
+                api_client.post("/llm/carregar")
+            except api_client.ErroAPI as exc:
+                st.error(str(exc))
+            st.rerun()
+    elif estado == "erro":
+        st.error(f"Falha ao carregar o modelo: {st_llm['erro']}", icon=icone)
+        if st.button("Tentar de novo", key=f"recarregar_llm_{compacto}", icon=":material/refresh:"):
+            api_client.post("/llm/carregar")
+            st.rerun()
+    else:
+        st.error("O LLM está desativado nesta instalação (SOLAR_LLM_DESATIVADO=1).", icon=icone)
+    return st_llm
+
+
+def aviso_llm(exc: "api_client.ErroAPI") -> None:
+    """Mensagem amigável para cada tipo de erro das rotas de LLM (sem interromper a página)."""
+    dica = f"\n\n{exc.sugestao}" if exc.sugestao else ""
+    mensagem = exc.mensagem.split(": ", 1)[-1] if exc.status else exc.mensagem
+    if exc.erro in ("modelo_carregando", "modelo_ocupado"):
+        espera = f" (tente em ~{exc.retry_after} s)" if exc.retry_after else ""
+        st.info(f"{mensagem}{espera}{dica}", icon=":material/hourglass_top:")
+    elif exc.erro in ("dados_invalidos", "texto_longo_demais", "tempo_esgotado", "tempo_esgotado_cliente", "nao_encontrado"):
+        st.warning(f"{mensagem}{dica}", icon=":material/warning:")
+    else:
+        st.error(f"{mensagem}{dica}", icon=":material/error:")
+    if exc.status:
+        st.caption(f"HTTP {exc.status} · erro `{exc.erro}`")

@@ -40,7 +40,9 @@ paginas = {
         st.Page("paginas/api.py", title="Explorar a API", icon=":material/api:"),
     ],
     "Inteligência artificial": [
-        st.Page("paginas/ia.py", title="Rumo à IA (LLM)", icon=":material/smart_toy:"),
+        st.Page("paginas/assistente.py", title="Pergunte ao Solar Viável", icon=":material/forum:"),
+        st.Page("paginas/processar_texto.py", title="Resumo e sentimento", icon=":material/summarize:"),
+        st.Page("paginas/ia.py", title="Modelo local (LLM)", icon=":material/smart_toy:"),
     ],
 }
 

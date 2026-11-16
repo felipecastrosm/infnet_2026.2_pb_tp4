@@ -77,6 +77,49 @@ st.caption(
     f"Pior mês: {mensal.loc[mensal['geracao_kwh'].idxmin(), 'mes']} · melhor mês: {mensal.loc[mensal['geracao_kwh'].idxmax(), 'mes']}."
 )
 
+st.subheader("Relatório de viabilidade com IA")
+st.write(
+    f"O modelo de linguagem local escreve um relatório em linguagem simples para **{cidade}**, com os "
+    "parâmetros da barra lateral. Os números vêm da API (`GET /estimativa`); depois da geração, cada número do "
+    "texto é conferido com os dados de entrada (`POST /llm/relatorio`)."
+)
+pedido_rel = {"cidade": cidade, "potencia_kwp": potencia, "desempenho": desempenho, "tarifa": tarifa}
+if st.button("Gerar relatório", icon=":material/description:", key="gerar_relatorio"):
+    try:
+        with st.spinner("O modelo local está escrevendo o relatório (10 a 30 segundos)..."):
+            st.session_state.relatorio_lp = api_client.post("/llm/relatorio", pedido_rel)
+            st.session_state.relatorio_lp_erro = None
+    except api_client.ErroAPI as exc:
+        st.session_state.relatorio_lp, st.session_state.relatorio_lp_erro = None, exc
+if st.session_state.get("relatorio_lp_erro"):
+    ui.aviso_llm(st.session_state.relatorio_lp_erro)
+rel = st.session_state.get("relatorio_lp")
+if rel:
+    with st.container(border=True):
+        st.markdown(ui.sem_latex(rel["relatorio"]))
+    v = rel["verificacao"]
+    if v["confiavel"]:
+        st.success(f"Os {len(v['numeros_citados'])} números do relatório conferem com os dados da API.", icon=":material/verified:")
+    else:
+        fora = ", ".join(ui.brl(n, 2) for n in v["nao_encontrados"])
+        st.warning(
+            f"Atenção: {len(v['nao_encontrados'])} número(s) do texto não aparece(m) nos dados da API ({fora}). "
+            "Considere os valores das métricas acima, calculados pela API.",
+            icon=":material/report:",
+        )
+    st.caption(
+        f"{rel['modelo']['nome']} · {rel['uso']['tempo_s']:.1f} s · {rel['uso']['tokens_saida']} tokens"
+        f" · parâmetros: {ui.brl(rel['estimativa']['potencia_kwp'], 1)} kWp, R$ {ui.brl(rel['estimativa']['tarifa'], 2)}/kWh"
+    )
+    st.download_button(
+        "Baixar relatório (.md)",
+        rel["relatorio"] + f"\n\n---\nGerado pelo Solar Viável com {rel['modelo']['nome']} (execução local).\n",
+        file_name=f"relatorio_solar_{rel['cidade'].split(' (')[0].lower().replace(' ', '_')}.md",
+        icon=":material/download:",
+    )
+    if rel["cidade"] != cidade or abs(rel["estimativa"]["potencia_kwp"] - potencia) > 1e-9 or abs(rel["estimativa"]["tarifa"] - tarifa) > 1e-9:
+        st.info("Os parâmetros mudaram desde que este relatório foi gerado. Clique em **Gerar relatório** para atualizar.")
+
 st.subheader("Ganho com a inclinação")
 ganho = sel.pivot_table(index="cidade", columns="plano", values="media_anual")[["Plano Horizontal", "Ângulo igual a latitude", "Maior média anual"]]
 ganho["ganho (%)"] = ((ganho["Maior média anual"] / ganho["Plano Horizontal"] - 1) * 100).round(1)

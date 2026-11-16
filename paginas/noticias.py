@@ -1,4 +1,8 @@
-"""Notícias do setor: nuvem de palavras, estatísticas e manchetes (dados via GET /noticias)."""
+"""Notícias do setor: nuvem de palavras, estatísticas e manchetes (dados via GET /noticias).
+
+Cada manchete pode ser resumida e classificada (sentimento para quem quer instalar solar)
+pelo LLM local, via POST /processar_texto.
+"""
 
 import streamlit as st
 
@@ -9,6 +13,33 @@ from src.data_processing import text
 @st.cache_data
 def nuvem_de_palavras(corpus: str):
     return text.gerar_nuvem(corpus)
+
+
+def analisar_com_ia(row) -> None:
+    """Resumo + sentimento (do ponto de vista de quem quer instalar) pelo LLM local, sob demanda."""
+    analises = st.session_state.setdefault("analises_ia", {})
+    if row.url not in analises:
+        if st.button("Resumir e avaliar com IA", key=f"ia_{row.url}", icon=":material/smart_toy:"):
+            texto = f"{row.titulo}. {row.texto}"
+            try:
+                with st.spinner("O modelo local está lendo a matéria..."):
+                    resumo = api_client.post("/processar_texto", {"texto": texto, "tarefa": "resumo", "max_palavras": 60})
+                    sent = api_client.post(
+                        "/processar_texto", {"texto": texto, "tarefa": "sentimento", "ponto_de_vista": "setor_solar", "justificar": False}
+                    )
+            except api_client.ErroAPI as exc:
+                ui.aviso_llm(exc)
+                return
+            analises[row.url] = {"resumo": resumo["resultado"], "sentimento": sent["resultado"]}
+            st.rerun()  # redesenha a manchete sem o botão
+        else:
+            return
+    a = analises[row.url]
+    cor = {"positivo": "green", "neutro": "gray", "negativo": "red"}[a["sentimento"]["sentimento"]]
+    st.markdown(
+        f":{cor}-badge[{a['sentimento']['sentimento']} para quem quer instalar · {a['sentimento']['confianca']:.0%}] "
+        + ui.sem_latex(a["resumo"]["resumo"])
+    )
 
 
 st.title("Notícias do setor solar")
@@ -84,3 +115,4 @@ for row in sel.itertuples():
         if row.texto:
             with st.expander("Ler o texto extraído"):
                 st.write(ui.sem_latex(row.texto))
+            analisar_com_ia(row)

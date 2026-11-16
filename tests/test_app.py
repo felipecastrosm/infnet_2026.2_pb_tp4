@@ -17,6 +17,8 @@ PAGINAS = [
     "paginas/noticias.py",
     "paginas/meus_dados.py",
     "paginas/api.py",
+    "paginas/assistente.py",
+    "paginas/processar_texto.py",
     "paginas/ia.py",
 ]
 
@@ -103,3 +105,74 @@ def test_pagina_ia_recupera_contexto():
     at = abrir("paginas/ia.py")
     assert not at.exception
     assert any("Prompt" in e.label for e in at.expander)
+
+
+# ---------------------------------------------------------------------------
+# Páginas com o LLM local (backend falso de conftest.py)
+# ---------------------------------------------------------------------------
+@pytest.mark.parametrize("pagina", ["paginas/assistente.py", "paginas/processar_texto.py", "paginas/ia.py"])
+def test_paginas_de_ia_com_modelo_nao_carregado_oferecem_carga(pagina):
+    from src.llm.servico import servico
+
+    servico().usar_backend(None)
+    at = abrir(pagina)
+    assert not at.exception
+    assert any("não foi carregado" in w.value for w in at.warning)
+    assert any(b.label == "Carregar o modelo" for b in at.button)
+
+
+def test_status_do_modelo_na_pagina_ia(llm):
+    at = abrir("paginas/ia.py")
+    assert not at.exception
+    assert any("modelo-falso/teste" in c.value for c in at.caption)
+    assert at.metric[0].value == "pronto"
+
+
+def test_chat_responde_com_fontes(llm):
+    _, backend = llm
+    backend.resposta = "Recife (PE) tem a maior irradiação solar, com 6,06 kWh/m²/dia [1]."
+    at = abrir("paginas/assistente.py")
+    at.chat_input[0].set_value("Qual capital tem a maior irradiação solar?").run()
+    assert not at.exception
+    assert any("Recife (PE) tem a maior" in m.value for m in at.markdown)
+    assert any(e.label.startswith("Fontes (1 citada") for e in at.expander)
+    assert len(at.session_state["chat"]) == 2
+
+
+def test_chat_mostra_erro_amigavel(llm):
+    from src.llm import erros
+
+    llm[1].erro = erros.TempoEsgotado("A geração passou do prazo de 90 s e foi interrompida.")
+    at = abrir("paginas/assistente.py")
+    at.chat_input[0].set_value("O que é o leilão de baterias?").run()
+    assert not at.exception
+    assert any("passou do prazo" in w.value for w in at.warning)
+    assert any("HTTP 504" in c.value for c in at.caption)
+
+
+def test_resumo_de_noticia_pela_pagina(llm):
+    llm[1].resposta = "O setor solar superou as projeções de 2026 com três meses de antecedência."
+    at = abrir("paginas/processar_texto.py")
+    [b for b in at.button if "Processar" in b.label][0].click().run()
+    assert not at.exception
+    resultado = at.session_state["pt_resposta"]["resultado"]
+    assert resultado["tipo"] == "resumo" and "superou as projeções" in resultado["resumo"]
+    assert any(m.label == "Palavras no resumo" for m in at.metric)
+
+
+def test_relatorio_na_pagina_de_longo_prazo(llm):
+    llm[1].resposta = "## Potencial solar do local\nPeça 3 orçamentos e confira as regras da ANEEL para geração distribuída na sua cidade."
+    at = abrir("paginas/longo_prazo.py")
+    [b for b in at.button if b.label == "Gerar relatório"][0].click().run()
+    assert not at.exception
+    assert any("conferem com os dados da API" in s.value for s in at.success)
+    assert at.session_state["relatorio_lp"]["verificacao"]["confiavel"]
+
+
+def test_noticia_resumida_e_avaliada(llm):
+    llm[1].resposta = "Resumo curto da matéria gerado pelo modelo local."
+    at = abrir("paginas/noticias.py")
+    [b for b in at.button if "Resumir e avaliar" in b.label][0].click().run()
+    assert not at.exception
+    assert len(at.session_state["analises_ia"]) == 1
+    assert any("positivo para quem quer instalar" in m.value for m in at.markdown)

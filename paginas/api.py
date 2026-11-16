@@ -76,7 +76,7 @@ st.code(comando, language="bash")
 
 if st.button("Enviar requisição", type="primary", icon=":material/send:"):
     try:
-        resposta = requests.request(rota["método"], url, json=json.loads(corpo) if corpo else None, timeout=60)
+        resposta = requests.request(rota["método"], url, json=json.loads(corpo) if corpo else None, timeout=api_client.TIMEOUT_LLM_S)
     except (requests.RequestException, json.JSONDecodeError) as exc:
         st.error(str(exc))
     else:

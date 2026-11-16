@@ -17,7 +17,8 @@ st.header("Objetivo do projeto")
 st.write(
     "Um app que traduz dados de irradiância e clima (NASA POWER e CRESESB/CEPEL) em uma "
     "estimativa de geração solar fotovoltaica e de economia na conta de luz, complementada "
-    "por notícias do setor e por dados que o próprio usuário pode enviar. Alinhado ao "
+    "por notícias do setor, por dados que o próprio usuário pode enviar e, desde o TP4, por um "
+    "**modelo de linguagem local** que explica os números, resume notícias e responde dúvidas. Alinhado ao "
     "**ODS 7 (Energia limpa e acessível)** e, secundariamente, ao **ODS 13 (Ação contra a "
     "mudança global do clima)**."
 )
@@ -28,14 +29,17 @@ st.page_link("paginas/longo_prazo.py", label="**Potencial de longo prazo**: méd
 st.page_link("paginas/noticias.py", label="**Notícias do setor**: nuvem de palavras, estatísticas e manchetes", icon=":material/newspaper:")
 st.page_link("paginas/meus_dados.py", label="**Meus dados**: envie suas medições (POST na API) e baixe os dados", icon=":material/upload_file:")
 st.page_link("paginas/api.py", label="**Explorar a API**: teste as rotas da API FastAPI pelo navegador", icon=":material/api:")
-st.page_link("paginas/ia.py", label="**Rumo à IA**: corpus e plano de uso de LLMs na próxima etapa", icon=":material/smart_toy:")
+st.page_link("paginas/assistente.py", label="**Pergunte ao Solar Viável**: chat com o modelo local, com as fontes citadas", icon=":material/forum:")
+st.page_link("paginas/processar_texto.py", label="**Resumo e sentimento**: o modelo local resume ou classifica um texto ou notícia", icon=":material/summarize:")
+st.page_link("paginas/ia.py", label="**Modelo local (LLM)**: estado do modelo, integração e recuperação de contexto", icon=":material/smart_toy:")
 st.caption("Use o menu à esquerda para navegar. Locais, período e sistema fotovoltaico ficam na barra lateral das páginas de análise.")
 
-st.header("Arquitetura (TP3)")
+st.header("Arquitetura (TP4)")
 st.write(
     "Os dados são coletados por scripts independentes e servidos por uma **API FastAPI**. "
     "O app Streamlit consome essa API por HTTP, tanto para consultar (GET) quanto para "
-    "enviar dados (POST/DELETE)."
+    "enviar dados (POST/DELETE). A API também executa um **LLM da HuggingFace na própria "
+    "máquina** (Transformers + PyTorch, na GPU ou na CPU), sem depender da nuvem."
 )
 st.graphviz_chart(
     """
@@ -45,13 +49,16 @@ digraph {
   nasa [label="NASA POWER\\n(API REST)"]; cresesb [label="CRESESB SunData\\n(formulário dinâmico)"];
   absolar [label="ABSOLAR\\n(HTML)"]; canal [label="Canal Solar\\n(HTML)"];
   dados [label="data/raw e data/processed\\n(CSV, TXT, JSONL)", shape=cylinder, fillcolor="#E7E5E4", color="#78716C"];
-  api [label="API FastAPI\\n/locais /clima /estimativa\\n/noticias /medicoes /llm", fillcolor="#FDE68A"];
+  api [label="API FastAPI\\n/locais /clima /estimativa\\n/noticias /medicoes\\n/processar_texto /llm/*", fillcolor="#FDE68A"];
+  llm [label="LLM local\\n(HuggingFace Transformers\\n+ PyTorch, GPU/CPU)", fillcolor="#DBEAFE", color="#3B82F6"];
+  hub [label="HuggingFace Hub\\n(download único)", fillcolor="white", style="rounded,dashed"];
   app [label="App Streamlit\\n(múltiplas páginas)", fillcolor="#FDE68A"];
   usuario [label="Usuário", shape=ellipse, fillcolor="white"];
   nasa -> dados [label="requests"]; cresesb -> dados [label="Selenium + BS4"];
   absolar -> dados [label="BS4"]; canal -> dados [label="BS4"];
   dados -> api; nasa -> api [label="consulta ao vivo", style=dashed];
   api -> app [label="GET"]; app -> api [label="POST / DELETE"]; usuario -> app;
+  api -> llm [label="texto"]; llm -> api [label="resumo, sentimento,\\nresposta"]; hub -> llm [label="pesos", style=dashed];
 }
 """
 )
