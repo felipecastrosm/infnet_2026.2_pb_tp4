@@ -19,9 +19,9 @@ def sem_medicoes():
 
 
 def test_saude_e_documentacao():
-    assert client.get("/saude").json() == {"status": "ok"}
+    assert client.get("/saude").json()["status"] == "ok"
     spec = client.get("/openapi.json").json()
-    assert {"/locais", "/clima", "/estimativa", "/noticias", "/medicoes", "/llm/contexto"} <= set(spec["paths"])
+    assert {"/locais", "/clima", "/estimativa", "/noticias", "/medicoes", "/llm/contexto", "/processar_texto", "/llm/perguntar", "/llm/relatorio", "/llm/status"} <= set(spec["paths"])
 
 
 def test_locais_lista_as_capitais():
@@ -44,7 +44,7 @@ def test_clima_filtra_por_cidade_e_periodo():
 def test_clima_local_inexistente_da_404():
     resp = client.get("/clima", params={"cidade": "Atlântida"})
     assert resp.status_code == 404
-    assert "Atlântida" in resp.json()["detail"]
+    assert "Atlântida" in resp.json()["mensagem"]
 
 
 def test_irradiacao_longo_prazo():
