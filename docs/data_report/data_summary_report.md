@@ -1,8 +1,12 @@
-# Data Summary Report: Solar Viável (TP3)
+# Data Summary Report: Solar Viável (TP4)
 
 Este relatório descreve as fontes de dados do projeto, como foram coletadas, seu
 conteúdo, sua qualidade e o objetivo de uso de cada uma no aplicativo e na API.
 
+> **O que mudou no TP4:** o corpus ganhou um documento de **ranking das capitais** (seção 7)
+> e foram criados os **dados de avaliação do LLM**: 34 notícias rotuladas à mão e 12
+> perguntas com resposta esperada (seção 7.1). As fontes coletadas não mudaram.
+>
 > **O que mudou no TP3:** nova fonte coletada com **Selenium** (CRESESB/SunData, seção 3);
 > Canal Solar com **texto completo** das matérias, data de publicação e tags (seção 5);
 > coletas de notícias **acumuladas** entre execuções; medições do usuário agora
@@ -19,7 +23,7 @@ conteúdo, sua qualidade e o objetivo de uso de cada uma no aplicativo e na API.
 | 3 | ABSOLAR, notícias | Texto semiestruturado (HTML) | `src/data_acquisition/absolar_scraper.py` (Beautiful Soup) | `data/raw/absolar_noticias.csv`, `absolar_corpus.txt` | Página *Notícias*; rota `/noticias`; corpus LLM |
 | 4 | Canal Solar, notícias | Texto semiestruturado (HTML) | `src/data_acquisition/canalsolar_scraper.py` (Beautiful Soup) | `data/raw/canalsolar_noticias.csv`, **`canalsolar_corpus.txt` (TP3)** | Página *Notícias*; rota `/noticias`; corpus LLM |
 | 5 | Medições do usuário | Série temporal (CSV ou formulário) | Página *Meus dados* → `POST /medicoes` | `data/processed/medicoes_usuarios.csv` (fora do Git) | Aparecem como locais em `/locais` e `/clima` |
-| 6 | **Corpus para LLM (TP3)** | Documentos de texto (derivado) | `src/data_processing/llm_prep.py` | `data/processed/corpus_llm.jsonl` | Página *Rumo à IA*; rotas `/llm/corpus`, `/llm/contexto` |
+| 6 | **Corpus para LLM (TP3)** | Documentos de texto (derivado) | `src/data_processing/llm_prep.py` | `data/processed/corpus_llm.jsonl` | Assistente (*Pergunte ao Solar Viável*) e página *Modelo local*; rotas `/llm/perguntar`, `/llm/corpus`, `/llm/contexto` |
 
 Todas as coletas rodam **fora do app**, em scripts próprios. A API lê os arquivos salvos e o
 app consome a API. Por isso o app é rápido e continua funcionando mesmo se uma fonte sair do
@@ -191,16 +195,32 @@ removidos (`DELETE /medicoes/{cidade}`). O arquivo fica fora do Git (`.gitignore
 ## 7. Corpus para LLM (derivado, novo no TP3)
 
 `src/data_processing/llm_prep.py` transforma as fontes em documentos curtos para uso
-com LLMs na próxima etapa (detalhes em [Planejamento de IA](../llm_planejamento.md)).
+com o LLM local (detalhes em [Planejamento de IA](../llm_planejamento.md) e
+[Integração local do LLM](../llm_integracao_local.md)).
 
 | Tipo | Origem | Qtde. | Palavras por documento | Construção |
 |---|---|---|---|---|
 | `noticia` | ABSOLAR (40 trechos) e Canal Solar (113) | 153 | média 201 (59 a 242) | Texto dividido em janelas de até 220 palavras com 40 de sobreposição, com o título em cada trecho |
 | `ficha_local` | NASA POWER + CRESESB | 10 | ~127 | Resumo em linguagem natural dos números de cada capital (irradiação, temperatura, nuvens, melhor e pior mês, longo prazo, geração de um sistema de 5 kWp) |
+| `ranking` **(TP4)** | NASA POWER + CRESESB | 1 | 210 | As 10 capitais já ordenadas pela irradiação (NASA, último ano) e pelo longo prazo do CRESESB, com a geração mensal de 5 kWp; usado em perguntas comparativas, que modelos pequenos erravam comparando fichas soltas |
 
 **Dicionário (`corpus_llm.jsonl`, um JSON por linha):** `id` (hash estável), `tipo`,
 `fonte`, `titulo`, `url`, `data`, `cidade` (só nas fichas), `texto`, `n_palavras`.
-Total: **163 documentos, ~32 mil palavras**.
+Total: **164 documentos, ~32 mil palavras**.
+
+### 7.1 Dados de avaliação do LLM (TP4)
+
+Em `data/avaliacao/`, criados à mão para comparar os modelos candidatos
+([Escolha do modelo](../llm_escolha_modelo.md)):
+
+| Arquivo | Conteúdo | Colunas |
+|---|---|---|
+| `sentimento_noticias.csv` | 34 notícias com texto suficiente, rotuladas do ponto de vista de quem quer instalar solar: 16 positivas, 11 neutras, 7 negativas | `url` (chave para `/noticias`), `fonte`, `titulo`, `rotulo` |
+| `perguntas.csv` | 12 perguntas: 2 comparativas, 7 numéricas, 1 conceitual e 2 fora do escopo | `pergunta`, `esperado` (termos aceitos, separados por `\|`, ou `RECUSA`), `tipo` |
+
+Limitações: um único anotador, conjunto pequeno e desequilibrado (reflete o viés
+pró-solar das fontes); os rótulos de algumas notícias são discutíveis (ex.: reajuste de
+tarifa é negativo para o consumidor, mas melhora o retorno de quem gera a própria energia).
 
 ## 8. Acesso aos dados pela API (TP3)
 

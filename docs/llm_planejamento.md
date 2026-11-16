@@ -1,7 +1,20 @@
 # Planejamento de IA: uso de LLMs no Solar Viável (TP4)
 
-Este documento registra como os dados coletados até o TP3 serão usados com LLMs
-(modelos de linguagem) na próxima etapa, e o que já foi preparado para isso.
+Este documento registra como os dados coletados até o TP3 seriam usados com LLMs
+(modelos de linguagem) e o que foi preparado para isso. Ele foi escrito no TP3; a
+seção 0 resume o que mudou na implementação do TP4.
+
+## 0. Situação no TP4
+
+| Plano do TP3 | O que foi feito no TP4 |
+|---|---|
+| Escolher um modelo (talvez via API de um provedor) | O enunciado pediu **execução local**: o modelo escolhido é o **Qwen3-1.7B**, executado com HuggingFace Transformers + PyTorch na própria máquina, depois de comparar 5 modelos locais e um classificador BERT ([llm_escolha_modelo.md](llm_escolha_modelo.md)) |
+| Chave do provedor como segredo | Não é mais necessária: o modelo é baixado uma vez e roda offline ([llm_integracao_local.md](llm_integracao_local.md)) |
+| `POST /llm/resumo` e `POST /llm/sentimento` | Unificados em **`POST /processar_texto`** (`tarefa=resumo` ou `sentimento`), como no exemplo do enunciado |
+| `POST /llm/perguntar` + página de chat | Feito: rota com citação das fontes e página *Pergunte ao Solar Viável* |
+| `POST /llm/relatorio` com conferência dos números | Feito: botão *Gerar relatório* na página *Potencial de longo prazo*; cada número do texto é conferido com a API |
+| Embeddings para a busca semântica | Adiado: em vez de embeddings, a busca TF-IDF ganhou **regras de metadados** (ficha da cidade citada) e um **documento de ranking** das capitais, que resolveram os erros da seção 6 sem outro modelo na memória |
+| Avaliação com perguntas e notícias rotuladas | Feito: 34 notícias rotuladas, 12 perguntas e 3 relatórios, usados para comparar os modelos (`python -m src.llm.avaliacao`) |
 
 ## 1. Por que usar LLM neste projeto
 

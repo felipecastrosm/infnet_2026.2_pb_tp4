@@ -8,14 +8,14 @@ CRISP-DM, preocupações de gestão de equipe e de infraestrutura.
 
 ## Tabela de correspondência
 
-| CRISP-DM | TDSP | Diretório no repositório | Status no TP3 |
+| CRISP-DM | TDSP | Diretório no repositório | Status no TP4 |
 |---|---|---|---|
-| Business Understanding | Business Understanding | `docs/project/project_charter.md`, `docs/methodology.md` | Revisado: problema reavaliado com FastAPI, Selenium e LLM |
-| Data Understanding | Data Acquisition and Understanding | `src/data_acquisition/`, `data/raw/`, `docs/data_report/data_summary_report.md` | Ampliado: Selenium (CRESESB), texto completo das notícias, coletas acumuladas |
-| Data Preparation | Data Acquisition and Understanding | `src/data_processing/`, `src/repositorio.py`, `data/processed/` | Ampliado: corpus para LLM, validação na API, geração mês a mês |
-| Modeling | Modeling | `src/data_processing/climate.py`, `src/data_processing/llm_prep.py` | Estimativa com longo prazo e inclinação; recursos com LLM planejados (`docs/llm_planejamento.md`) |
-| Evaluation | Modeling / Model Evaluation | `tests/`, `docs/llm_planejamento.md` | Comparação NASA x CRESESB; plano de avaliação dos recursos com LLM |
-| Deployment | Deployment | `app.py`, `paginas/`, `src/api/`, `requirements.txt` | App com múltiplas páginas + API FastAPI |
+| Business Understanding | Business Understanding | `docs/project/project_charter.md`, `docs/methodology.md` | Revisado: o que o LLM local resolve (Charter, seção 2.2) |
+| Data Understanding | Data Acquisition and Understanding | `src/data_acquisition/`, `data/raw/`, `docs/data_report/data_summary_report.md` | Sem mudança nas fontes; criados os dados de avaliação do LLM (`data/avaliacao/`) |
+| Data Preparation | Data Acquisition and Understanding | `src/data_processing/`, `src/repositorio.py`, `data/processed/` | Corpus com ranking das capitais; recuperação com regras de metadados |
+| Modeling | Modeling | `src/data_processing/climate.py`, `src/llm/` | LLM local (Qwen3-1.7B) escolhido entre 6 modelos; resumo, sentimento, perguntas e relatório |
+| Evaluation | Modeling / Model Evaluation | `tests/`, `src/llm/avaliacao.py`, `docs/avaliacao/` | Bancada de modelos (sentimento, resumo, perguntas, relatório, custo); 93 testes |
+| Deployment | Deployment | `app.py`, `paginas/`, `src/api/`, `requirements.txt` | LLM servido pela API FastAPI, 9 páginas, erros padronizados |
 | (sem equivalente) | Customer Acceptance | (sem equivalente) | Não iniciado |
 
 ## Como cada fase se aplica a este projeto
@@ -41,16 +41,21 @@ texto a partir dos números (`src/data_processing/llm_prep.py`).
 **Modeling.** A estimativa de geração (irradiância x kWp x desempenho) passou a usar, por
 padrão, o **ano típico do CRESESB com a inclinação de maior média anual**, somando a
 geração mês a mês (`climate.geracao_mensal`). Os recursos com LLM (perguntas e respostas,
-resumo, sentimento e relatório) estão planejados em [Planejamento de IA](llm_planejamento.md).
+resumo, sentimento e relatório) foram implementados no TP4 com um **LLM executado
+localmente** (Qwen3-1.7B via HuggingFace Transformers), escolhido por desempenho, custo
+computacional e acessibilidade ([Escolha do modelo](llm_escolha_modelo.md)). O sentimento
+usa as probabilidades que o próprio modelo dá a cada rótulo, não texto livre.
 
 **Evaluation.** O app e o relatório comparam o último ano (NASA) com o longo prazo
 (CRESESB): as diferenças chegaram a +11% (Recife, Manaus) e −5% (Rio), o que justificou a
-mudança da estimativa padrão. Para o TP4 estão previstas avaliações com conjuntos de
-perguntas de teste e notícias rotuladas à mão. Os 44 testes automatizados cobrem a API,
-os parsers dos scrapers (com HTML salvo), a preparação para LLM e as páginas do app.
+mudança da estimativa padrão. No TP4, os modelos candidatos foram avaliados em 34
+notícias rotuladas à mão, 12 perguntas com resposta esperada e 3 relatórios cujos números
+são conferidos com a API (`python -m src.llm.avaliacao`). Os 93 testes automatizados cobrem
+a API (incluindo cada cenário de erro do LLM, com um modelo falso), os parsers dos
+scrapers, a preparação para LLM e as páginas do app.
 
 **Deployment.** Arquitetura em duas camadas: a **API FastAPI** (`src/api/`) serve dados e
-cálculos, e o **app Streamlit com 7 páginas** (`app.py` + `paginas/`, com menu
+cálculos e executa o LLM local, e o **app Streamlit com 9 páginas** (`app.py` + `paginas/`, com menu
 `st.navigation`) os consome por HTTP. No deploy de processo único (Streamlit Community
 Cloud), o app sobe a própria API em uma thread. Dependências fixadas em
 `requirements.txt` e versionamento com Git.
