@@ -1,4 +1,4 @@
-"""Preparação dos dados para uso com LLMs (próxima etapa do projeto).
+"""Preparação dos dados para uso com o LLM local (corpus, fichas, ranking e recuperação de contexto).
 
 Transforma o que já foi coletado em um corpus de documentos curtos e autocontidos,
 prontos para:
@@ -13,9 +13,11 @@ Tipos de documento:
 - `ficha_local`: um resumo em texto, gerado a partir dos números da NASA POWER e do
   CRESESB, de cada capital (irradiação, melhor/pior mês, geração estimada).
 
-Também traz um recuperador simples por palavras-chave (`buscar`) e o modelo de prompt
-(`montar_prompt`) que será usado com o LLM no TP4. O recuperador serve de linha de
-base e será substituído por embeddings na próxima etapa.
+Também traz a recuperação de contexto usada nas perguntas e respostas com o LLM local
+(src/llm/tarefas.py): uma busca por palavras-chave com pesos TF-IDF (`buscar`),
+reforçada por regras de metadados (`buscar_contexto`): a ficha da cidade citada na
+pergunta entra sempre, e perguntas comparativas ("qual capital tem mais sol?") recebem
+o ranking das capitais. O modelo de prompt fica em `montar_prompt`.
 
 Uso (na raiz do projeto):
     python -m src.data_processing.llm_prep      # gera data/processed/corpus_llm.jsonl
@@ -25,6 +27,8 @@ from __future__ import annotations
 
 import hashlib
 import math
+import re
+import unicodedata
 from collections import Counter
 from pathlib import Path
 
@@ -131,8 +135,51 @@ def fichas_locais(clima: pd.DataFrame, sundata: pd.DataFrame, potencia_kwp: floa
     return docs
 
 
+def ranking_capitais(clima: pd.DataFrame, sundata: pd.DataFrame, potencia_kwp: float = 5.0, desempenho: float = 0.80) -> list[dict]:
+    """Um documento com as capitais já ordenadas (para perguntas comparativas).
+
+    Modelos pequenos erram ao comparar dez fichas soltas; com a ordem calculada
+    aqui (a partir dos dados), o modelo só precisa ler o primeiro e o último colocado.
+    """
+    media = clima.groupby("cidade")["ALLSKY_SFC_SW_DWN"].mean().sort_values(ascending=False)
+    frases = [
+        f"Ranking das {len(media)} capitais pela irradiação solar média medida por satélite (NASA POWER) entre "
+        f"{clima['date'].min():%d/%m/%Y} e {clima['date'].max():%d/%m/%Y}, da maior para a menor: "
+        + "; ".join(f"{i}º {c}: {_num(v)} kWh/m²/dia" for i, (c, v) in enumerate(media.items(), start=1))
+        + f". A capital com maior irradiação é {media.index[0]} e a com menor irradiação é {media.index[-1]}."
+    ]
+    ref = sundata[sundata["plano"] == "Maior média anual"].copy()
+    if not ref.empty:
+        ref["geracao_mes"] = [
+            climate.geracao_mensal([r[m] for m in climate.MESES], potencia_kwp, desempenho, tarifa=0)["geracao_kwh"].sum() / 12
+            for _, r in ref.iterrows()
+        ]
+        ref = ref.sort_values("media_anual", ascending=False)
+        frases.append(
+            f"Ranking pela irradiação de longo prazo do CRESESB com os painéis inclinados, e geração média mensal de um "
+            f"sistema de {_num(potencia_kwp, 1)} kWp: "
+            + "; ".join(
+                f"{i}º {r.cidade}: {_num(r.media_anual)} kWh/m²/dia, {_num(r.geracao_mes, 0)} kWh por mês"
+                for i, r in enumerate(ref.itertuples(), start=1)
+            )
+            + "."
+        )
+    return [
+        {
+            "id": _id("ranking", "capitais"),
+            "tipo": "ranking",
+            "fonte": "NASA POWER + CRESESB",
+            "titulo": "Ranking das capitais por potencial solar",
+            "url": "",
+            "data": f"{clima['date'].max():%Y-%m-%d}",
+            "cidade": "",
+            "texto": " ".join(frases),
+        }
+    ]
+
+
 def construir_corpus(noticias: pd.DataFrame, clima: pd.DataFrame, sundata: pd.DataFrame) -> pd.DataFrame:
-    corpus = pd.DataFrame(documentos_noticias(noticias) + fichas_locais(clima, sundata))
+    corpus = pd.DataFrame(documentos_noticias(noticias) + fichas_locais(clima, sundata) + ranking_capitais(clima, sundata))
     corpus["n_palavras"] = corpus["texto"].str.split().str.len()
     return corpus
 
@@ -148,6 +195,53 @@ def buscar(corpus: pd.DataFrame, pergunta: str, k: int = 4) -> pd.DataFrame:
     pontuacao = tokens.map(lambda c: sum(math.log1p(c[t]) * idf[t] for t in termos if t in c))
     resultado = corpus.assign(pontuacao=pontuacao.round(3))
     return resultado[resultado["pontuacao"] > 0].nlargest(k, "pontuacao")
+
+
+def _normalizar(texto: str) -> str:
+    sem_acento = unicodedata.normalize("NFKD", texto).encode("ascii", "ignore").decode()
+    return re.sub(r"\s+", " ", sem_acento.lower())
+
+
+_COMPARATIVA = re.compile(
+    r"\b(qual|quais|onde|ranking|compar\w*|maior|menor|melhor|pior|mais|menos)\b.*"
+    r"\b(capita\w*|cidade\w*|loca\w*|regia\w*|estado\w*|sol|ensolarad\w*|irradia\w*|gera\w*)\b"
+)
+
+
+def cidades_citadas(corpus: pd.DataFrame, pergunta: str) -> list[str]:
+    """Cidades das fichas cujo nome aparece na pergunta (sem acento e sem a UF)."""
+    p = _normalizar(pergunta)
+    cidades = [c for c in corpus["cidade"].unique() if c]
+    return [c for c in cidades if re.search(rf"\b{re.escape(_normalizar(c.split(' (')[0]))}\b", p)]
+
+
+def eh_comparativa(pergunta: str) -> bool:
+    return bool(_COMPARATIVA.search(_normalizar(pergunta)))
+
+
+def buscar_contexto(corpus: pd.DataFrame, pergunta: str, k: int = 4) -> pd.DataFrame:
+    """Recuperação usada pelo LLM: TF-IDF + regras de metadados (cidade e comparação).
+
+    - a ficha de cada cidade citada na pergunta entra primeiro (a busca por palavras
+      sozinha às vezes prefere uma notícia que só menciona a cidade);
+    - se a pergunta compara locais e não cita cidade, entra o ranking das capitais
+      (ordem já calculada a partir dos dados), para o modelo não precisar comparar;
+    - o restante das `k` vagas vem da busca por palavras-chave.
+    """
+    if corpus.empty:
+        return buscar(corpus, pergunta, k)
+    fichas = corpus[corpus["tipo"] == "ficha_local"]
+    citadas = cidades_citadas(corpus, pergunta)
+    if citadas:
+        prioritarios = fichas[fichas["cidade"].isin(citadas)]
+    elif eh_comparativa(pergunta):
+        prioritarios = corpus[corpus["tipo"] == "ranking"]
+    else:
+        return buscar(corpus, pergunta, k)
+    vagas = max(k - len(prioritarios), 1)
+    busca = buscar(corpus[~corpus["id"].isin(prioritarios["id"])], pergunta, vagas)
+    pontuacao = float(busca["pontuacao"].max()) if len(busca) else 1.0
+    return pd.concat([prioritarios.assign(pontuacao=pontuacao), busca], ignore_index=True)
 
 
 def montar_prompt(pergunta: str, trechos: pd.DataFrame) -> str:

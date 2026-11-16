@@ -100,10 +100,11 @@ def test_buscar_prioriza_trecho_relevante():
     assert list(resultado["titulo"]) == ["Baterias"]
 
 
-def test_corpus_tem_noticias_e_fichas():
+def test_corpus_tem_noticias_fichas_e_ranking():
     from src import repositorio
 
     corpus = repositorio.carregar_corpus_llm()
-    assert set(corpus["tipo"]) == {"noticia", "ficha_local"}
-    assert corpus["n_palavras"].max() <= llm_prep.MAX_PALAVRAS + 30  # título + trecho
+    assert set(corpus["tipo"]) == {"noticia", "ficha_local", "ranking"}
+    noticias = corpus[corpus["tipo"] == "noticia"]
+    assert noticias["n_palavras"].max() <= llm_prep.MAX_PALAVRAS + 30  # título + trecho
     assert corpus["id"].is_unique
